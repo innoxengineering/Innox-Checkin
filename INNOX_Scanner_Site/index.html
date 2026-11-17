@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>INNOX Seminar 2026 – Check-in</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+/* Talks to the INNOX Check-in Google Apps Script (which reads/writes the Google Sheet). */
+var API_URL = 'https://script.google.com/macros/s/AKfycbxPpvpuecF2aAgu-zAT00nQ4bLsPXNk6g2wmvONsOeaAwbesXtjv6AoEhd6lGmyIRmn/exec';
+window.google = { script: { get run() {
+  var ok = function () {}, fail = function (e) { console.error(e); };
+  function call(params) {
+    fetch(API_URL + '?' + new URLSearchParams(params).toString(), { method: 'GET', redirect: 'follow', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { if (d && d.error) throw new Error(d.error); ok(d); })
+      .catch(fail);
+  }
+  var api = {
+    withSuccessHandler: function (f) { ok = f; return api; },
+    withFailureHandler: function (f) { fail = f; return api; },
+    checkIn: function (code, station) { call({ action: 'checkin', code: code, station: station || '' }); },
+    search: function (q) { call({ action: 'search', q: q }); },
+    stats: function () { call({ action: 'stats' }); }
+  };
+  return api;
+} } };
+</script>
+
+<style>
+  :root { --blue:#066DAF; --blue-dk:#084A80; --orange:#FC8500; --grey:#A6A6A6;
+          --ok:#1E8E3E; --warn:#E37400; --err:#C5221F; --bg:#F1F4F8; --ink:#1F2933; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:#fff; border-bottom:4px solid var(--blue); padding:12px 16px; display:flex; align-items:center; justify-content:space-between; position:relative; overflow:hidden; }
+  header:before { content:""; position:absolute; left:-30px; top:-30px; width:80px; height:80px; background:linear-gradient(135deg,var(--blue) 50%,transparent 50%); }
+  header h1 { margin:0 0 0 34px; font-size:18px; color:var(--blue-dk); }
+  header h1 small { display:block; font-size:12px; color:var(--orange); letter-spacing:2px; font-weight:600; }
+  .count { text-align:right; font-weight:700; color:var(--blue); font-size:22px; line-height:1; }
+  .count small { display:block; font-size:11px; color:#667; font-weight:500; margin-top:3px; }
+  main { max-width:560px; margin:0 auto; padding:14px; }
+  .card { background:#fff; border-radius:14px; padding:14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .row { display:flex; gap:8px; }
+  button, .btn { border:0; border-radius:10px; padding:13px 14px; font-size:16px; font-weight:600; cursor:pointer; background:var(--blue); color:#fff; flex:1; text-align:center; }
+  button.secondary, .btn.secondary { background:#E6EEF6; color:var(--blue-dk); }
+  input[type=text] { width:100%; font-size:17px; padding:12px; border:2px solid #CFD8E3; border-radius:10px; outline:none; }
+  input[type=text]:focus { border-color:var(--blue); }
+  label.small { font-size:12px; color:#667; display:block; margin:0 0 5px; }
+  #camWrap { position:relative; border-radius:12px; overflow:hidden; background:#000; display:none; aspect-ratio:1/1; margin-bottom:10px; }
+  #video { width:100%; height:100%; object-fit:cover; }
+  #camWrap .frame { position:absolute; inset:16%; border:3px solid rgba(255,255,255,.85); border-radius:14px; box-shadow:0 0 0 999px rgba(0,0,0,.25); }
+  #camMsg { font-size:13px; color:#a33; margin:8px 0 0; display:none; }
+  #result { display:none; border-radius:16px; padding:18px; color:#fff; margin-bottom:14px; text-align:center; animation:pop .25s ease; }
+  @keyframes pop { from { transform:scale(.96); opacity:.4 } to { transform:none; opacity:1 } }
+  #result.valid { background:var(--ok); } #result.already { background:var(--warn); } #result.invalid { background:var(--err); }
+  #result .icon { font-size:46px; line-height:1; }
+  #result .head { font-size:22px; font-weight:800; margin:6px 0 10px; letter-spacing:.5px; }
+  #result .name { font-size:24px; font-weight:800; }
+  #result .meta { font-size:16px; opacity:.95; margin-top:4px; }
+  #result .reg { display:inline-block; margin-top:10px; background:rgba(255,255,255,.2); border-radius:20px; padding:5px 12px; font-weight:700; }
+  #result .note { margin-top:10px; font-size:15px; }
+  .hit { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 0; border-top:1px solid #EEF1F5; }
+  .hit b { display:block; } .hit span { font-size:13px; color:#667; }
+  .hit button { flex:0 0 auto; padding:9px 12px; font-size:14px; }
+  .tag { font-size:12px; padding:3px 8px; border-radius:10px; background:#E3F2E7; color:var(--ok); font-weight:700; }
+  #busy { display:none; text-align:center; color:#667; font-size:14px; margin:-6px 0 10px; }
+  .hidden-file { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1><small>INNOX SEMINAR 2026</small>Registration Check-in</h1>
+  <div class="count"><span id="cnt">–</span><small>checked in</small></div>
+</header>
+<main>
+  <div id="result"></div>
+  <div id="busy">Checking…</div>
+
+  <div class="card">
+    <div id="camWrap"><video id="video" playsinline muted></video><div class="frame"></div></div>
+    <div class="row">
+      <button id="camBtn">📷 Start camera</button>
+      <label class="btn secondary" for="photo">🖼️ Scan from photo</label>
+      <input class="hidden-file" type="file" id="photo" accept="image/*" capture="environment">
+    </div>
+    <p id="camMsg"></p>
+  </div>
+
+  <div class="card">
+    <label class="small" for="code">QR scanner / type the code (e.g. INX26-ABC123) and press Enter</label>
+    <input type="text" id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Scan or type code…">
+  </div>
+
+  <div class="card">
+    <label class="small" for="q">Guest forgot the QR? Search by name, company or Reg No</label>
+    <input type="text" id="q" autocomplete="off" placeholder="e.g. Hasan, MUP, 042">
+    <div id="hits"></div>
+  </div>
+
+  <div class="card">
+    <label class="small" for="station">This reception point (shown in the Sheet as “Checked-in By”)</label>
+    <input type="text" id="station" placeholder="e.g. Desk 1">
+  </div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  $('station').value = store.get('innox_station') || 'Desk 1';
+  $('station').addEventListener('change', function () { store.set('innox_station', this.value); });
+
+  var busy = false, lastCode = '', lastAt = 0, hideTimer = null;
+  var isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (!isTouch) $('code').focus();
+
+  // ---------- sounds ----------
+  var actx = null;
+  function beep(kind) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var seq = kind === 'valid' ? [[880, .12], [1320, .16]] : kind === 'already' ? [[660, .18], [660, .18]] : [[220, .45]];
+      var t = actx.currentTime;
+      seq.forEach(function (s) {
+        var o = actx.createOscillator(), g = actx.createGain();
+        o.frequency.value = s[0]; o.type = 'sine'; g.gain.value = .25;
+        o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + s[1]); t += s[1] + .06;
+      });
+    } catch (e) {}
+    try { navigator.vibrate && navigator.vibrate(kind === 'valid' ? 120 : [120, 80, 120]); } catch (e) {}
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function show(res) {
+    var el = $('result'), p = res.person || {};
+    el.className = res.result;
+    var html;
+    if (res.result === 'valid') {
+      html = '<div class="icon">✅</div><div class="head">VALID REGISTRATION — CHECKED IN</div>';
+    } else if (res.result === 'already') {
+      html = '<div class="icon">⚠️</div><div class="head">ALREADY CHECKED IN</div>';
+    } else {
+      html = '<div class="icon">⛔</div><div class="head">INVALID QR CODE</div>' +
+             '<div class="meta">This code is not linked to any registered participant.</div>' +
+             '<div class="reg">' + esc(res.code || '') + '</div>';
+    }
+    if (res.result !== 'invalid') {
+      html += '<div class="name">' + esc(p.name) + '</div>' +
+              '<div class="meta">' + esc(p.title) + '</div>' +
+              '<div class="meta"><b>' + esc(p.company) + '</b></div>' +
+              '<div class="reg">Reg. No. ' + esc(p.regNo) + '</div>' +
+              '<div class="note">' + (res.result === 'valid'
+                  ? 'Status: Checked in at ' + esc(p.time)
+                  : 'First checked in at <b>' + esc(p.time) + '</b>' + (p.by ? ' (' + esc(p.by) + ')' : '')) + '</div>';
+    }
+    el.innerHTML = html; el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (res.stats) $('cnt').textContent = res.stats.checkedIn + ' / ' + res.stats.total;
+    beep(res.result);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function () { el.style.display = 'none'; }, 12000);
+  }
+
+  function submit(raw) {
+    var code = String(raw || '').trim();
+    if (!code || busy) return;
+    var now = Date.now();
+    if (code === lastCode && now - lastAt < 4000) return; // same badge still in front of the camera
+    lastCode = code; lastAt = now; busy = true; $('busy').style.display = 'block';
+    google.script.run
+      .withSuccessHandler(function (res) { busy = false; $('busy').style.display = 'none'; show(res); })
+      .withFailureHandler(function (err) {
+        busy = false; $('busy').style.display = 'none';
+        alertBox('Connection problem – please scan again. (' + (err && err.message ? err.message : err) + ')');
+      })
+      .checkIn(code, $('station').value);
+  }
+
+  function alertBox(msg) {
+    var el = $('result'); el.className = 'invalid';
+    el.innerHTML = '<div class="icon">📶</div><div class="head">NOT SAVED</div><div class="meta">' + esc(msg) + '</div>';
+    el.style.display = 'block';
+  }
+
+  // ---------- keyboard / USB scanner ----------
+  $('code').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); lastCode = ''; submit(this.value); this.value = ''; }
+  });
+
+  // ---------- QR decoding helpers ----------
+  var detector = null;
+  try { if ('BarcodeDetector' in window) detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
+  var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  function decodeSource(src, w, h) {
+    if (detector) {
+      return detector.detect(src).then(function (codes) {
+        return codes && codes.length ? codes[0].rawValue : jsqrDecode(src, w, h);
+      }).catch(function () { return jsqrDecode(src, w, h); });
+    }
+    return Promise.resolve(jsqrDecode(src, w, h));
+  }
+  function jsqrDecode(src, w, h) {
+    if (!window.jsQR || !w || !h) return null;
+    var scale = Math.min(1, 900 / Math.max(w, h));
+    canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+    ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+    var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    return r ? r.data : null;
+  }
+
+  // ---------- live camera ----------
+  var stream = null, scanning = false;
+  $('camBtn').addEventListener('click', function () { stream ? stopCam() : startCam(); });
+
+  function startCam() {
+    $('camMsg').style.display = 'none';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return camFail();
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      .then(function (s) {
+        stream = s; var v = $('video'); v.srcObject = s; v.setAttribute('playsinline', ''); v.play();
+        $('camWrap').style.display = 'block'; $('camBtn').textContent = '⏹ Stop camera';
+        scanning = true; loop();
+      }).catch(camFail);
+  }
+  function stopCam() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = null; $('camWrap').style.display = 'none'; $('camBtn').textContent = '📷 Start camera';
+  }
+  function camFail(err) {
+    stopCam();
+    $('camMsg').innerHTML = 'The live camera is not available here' + (err && err.name ? ' (' + esc(err.name) + ')' : '') +
+      '. Use <b>“Scan from photo”</b> – it opens the phone camera, take a picture of the QR and it is checked automatically.';
+    $('camMsg').style.display = 'block';
+  }
+  function loop() {
+    if (!scanning) return;
+    var v = $('video');
+    if (v.readyState >= 2 && !busy) {
+      decodeSource(v, v.videoWidth, v.videoHeight).then(function (txt) {
+        if (txt) submit(txt);
+        setTimeout(loop, 180);
+      });
+    } else setTimeout(loop, 180);
+  }
+
+  // ---------- photo fallback ----------
+  $('photo').addEventListener('change', function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    var url = URL.createObjectURL(f), img = new Image();
+    img.onload = function () {
+      decodeSource(img, img.naturalWidth, img.naturalHeight).then(function (txt) {
+        URL.revokeObjectURL(url);
+        if (txt) { lastCode = ''; submit(txt); }
+        else alertBox('No QR code found in the photo. Hold the phone steady, fill the frame with the QR code and try again.');
+      });
+    };
+    img.src = url; this.value = '';
+  });
+
+  // ---------- manual search ----------
+  var qTimer = null;
+  $('q').addEventListener('input', function () {
+    var q = this.value; clearTimeout(qTimer);
+    if (q.trim().length < 2) { $('hits').innerHTML = ''; return; }
+    qTimer = setTimeout(function () {
+      google.script.run.withSuccessHandler(function (list) {
+        $('hits').innerHTML = list.length ? list.map(function (p) {
+          return '<div class="hit"><div><b>' + esc(p.regNo) + ' · ' + esc(p.name) + '</b><span>' + esc(p.title) + ' — ' + esc(p.company) + '</span></div>' +
+            (p.status === 'Checked in' ? '<span class="tag">✓ ' + esc(p.time.slice(11, 16)) + '</span>'
+                                       : '<button data-id="' + esc(p.id) + '">Check in</button>') + '</div>';
+        }).join('') : '<p style="color:#667;font-size:14px">No registered participant matches.</p>';
+      }).search(q);
+    }, 300);
+  });
+  $('hits').addEventListener('click', function (e) {
+    var id = e.target.getAttribute && e.target.getAttribute('data-id');
+    if (id) { lastCode = ''; submit(id); $('q').value = ''; $('hits').innerHTML = ''; }
+  });
+
+  // ---------- live counter ----------
+  function refresh() { google.script.run.withSuccessHandler(function (s) { $('cnt').textContent = s.checkedIn + ' / ' + s.total; }).stats(); }
+  refresh(); setInterval(refresh, 30000);
+})();
+</script>
+</body>
+</html>
